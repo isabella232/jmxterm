@@ -29,6 +29,8 @@ public class CliMainOptions
      */
     public static final String STDOUT = "stdout";
 
+    private boolean dump;
+
     private boolean exitOnFailure;
 
     private boolean help;
@@ -112,12 +114,30 @@ public class CliMainOptions
     }
 
     /**
+     * @return {@link #setDump(boolean)}
+     */
+    public final boolean isDump()
+    {
+        return dump;
+    }
+
+    /**
      * @return True if CLI runs without user interaction, such as piped input
      */
     public final boolean isNonInteractive()
     {
         return nonInteractive;
     }
+
+    /**
+     * @param dump True to dump all attributes to JSON
+     */
+    @Option( name = "d", longName = "dump", description = "Dump all attributes to JSON" )
+    public final void setDump( boolean dump )
+    {
+        this.dump = dump;
+    }
+
 
     /**
      * @param exitOnFailure True if terminal exits on any failure
