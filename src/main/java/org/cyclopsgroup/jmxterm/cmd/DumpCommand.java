@@ -1,153 +1,43 @@
 package org.cyclopsgroup.jmxterm.cmd;
 
 import java.io.IOException;
+import java.io.StringWriter;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
+import javax.management.Attribute;
+import javax.management.AttributeList;
 import javax.management.InstanceNotFoundException;
+import javax.management.IntrospectionException;
 import javax.management.JMException;
+import javax.management.MBeanAttributeInfo;
 import javax.management.MBeanServerConnection;
-import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
+import javax.management.ReflectionException;
+import javax.management.openmbean.CompositeData;
 
-import org.apache.commons.lang.Validate;
 import org.cyclopsgroup.jcli.annotation.Argument;
 import org.cyclopsgroup.jcli.annotation.Cli;
-import org.cyclopsgroup.jcli.annotation.Option;
 import org.cyclopsgroup.jmxterm.Command;
 import org.cyclopsgroup.jmxterm.Session;
-import org.cyclopsgroup.jmxterm.SyntaxUtils;
-import org.cyclopsgroup.jmxterm.io.RuntimeIOException;
+import org.json.simple.JSONObject;
 
 /**
  * Dump all attributes to JSON
  *
- * @author <a href="mailto:alq@datadoghq.com">Alexis Le-Quoc</a>
+ * @author <a href="mailto:remi@datadoghq.com">Remi Hakim</a>
  */
-@Cli( name = "dump", description = "Display or set current selected MBean. ", note = "Without any parameter, it displays current selected bean, "
-    + "otherwise it selects the bean defined by the first parameter. eg. bean java.lang:type=Memory" )
+@Cli( name = "dump", description = "Display a JSON Formatted dictionnary of all the attributes and their values of all MBeans of the specified domain or of all domains if domain is not specified.", note = "Without any parameter, it dumps all the domains.")
+
 public class DumpCommand
     extends Command
 {
-    /**
-     * Get full MBean name with given bean name, domain and session
-     *
-     * @param bean Name of bean. It can be NULL so that session#getBean() is returned
-     * @param domain Domain for bean
-     * @param session Current session
-     * @return Full qualified name of MBean
-     * @throws JMException Thrown when given MBean name is malformed
-     * @throws IOException
-     */
-    public static String getBeanName( String bean, String domain, Session session )
-        throws JMException, IOException
-    {
-        Validate.notNull( session, "Session can't be NULL" );
-        if ( bean == null )
-        {
-            return session.getBean();
-        }
-        if ( SyntaxUtils.isNull( bean ) )
-        {
-            return null;
-        }
-        MBeanServerConnection con = session.getConnection().getServerConnection();
-        if ( bean.indexOf( ':' ) != -1 )
-        {
-            try
-            {
-                ObjectName name = new ObjectName( bean );
-                con.getMBeanInfo( name );
-                return bean;
-            }
-            catch ( MalformedObjectNameException e )
-            {
-            }
-            catch ( InstanceNotFoundException e )
-            {
-            }
-        }
-
-        String domainName = DomainCommand.getDomainName( domain, session );
-        if ( domainName == null )
-        {
-            throw new IllegalArgumentException( "Please specify domain using either -d option or domain command" );
-        }
-        try
-        {
-            ObjectName name = new ObjectName( domainName + ":" + bean );
-            con.getMBeanInfo( name );
-            return domainName + ":" + bean;
-        }
-        catch ( MalformedObjectNameException e )
-        {
-        }
-        catch ( InstanceNotFoundException e )
-        {
-        }
-        throw new IllegalArgumentException( "Bean name " + bean + " isn't valid" );
-    }
-
-    /**
-     * Get list of candidate beans
-     *
-     * @param session Session
-     * @return List of bean names
-     * @throws MalformedObjectNameException
-     * @throws IOException
-     */
-    static List<String> getCandidateBeanNames( Session session )
-        throws MalformedObjectNameException
-    {
-        try
-        {
-            ArrayList<String> results = new ArrayList<String>( BeansCommand.getBeans( session, null ) );
-            String domain = session.getDomain();
-            if ( domain != null )
-            {
-                List<String> beans = BeansCommand.getBeans( session, domain );
-                for ( String bean : beans )
-                {
-                    results.add( bean.substring( domain.length() + 1 ) );
-                }
-            }
-            return results;
-        }
-        catch ( IOException e )
-        {
-            throw new RuntimeIOException( "Couldn't find candidate bean names", e );
-        }
-
-    }
-
-    private String bean;
-
-    private String domain;
-
-    /**
-     * @inheritDoc
-     */
-    @Override
-    public List<String> doSuggestArgument()
-        throws IOException, MalformedObjectNameException
-    {
-        return getCandidateBeanNames( getSession() );
-    }
-
-    /**
-     * @inheritDoc
-     */
-    @Override
-    public List<String> doSuggestOption( String optionName )
-        throws IOException
-    {
-        if ( optionName.equals( "d" ) )
-        {
-            return DomainsCommand.getCandidateDomains( getSession() );
-        }
-        return null;
-    }
-
+	private String domain;
+	
     /**
      * @inheritDoc
      */
@@ -155,50 +45,121 @@ public class DumpCommand
     public void execute()
         throws IOException, JMException
     {
+    	JSONObject dump = new JSONObject();
+    	
         Session session = getSession();
-        if ( bean == null )
-        {
-            if ( session.getBean() == null )
-            {
-                session.output.println( SyntaxUtils.NULL );
-            }
-            else
-            {
-                session.output.println( session.getBean() );
-            }
-            return;
-        }
-        String beanName = getBeanName( bean, domain, session );
-        if ( beanName == null )
-        {
-            session.setBean( null );
-            session.output.printMessage( "bean is unset" );
-            return;
-        }
-        ObjectName name = new ObjectName( beanName );
         MBeanServerConnection con = session.getConnection().getServerConnection();
-        con.getMBeanInfo( name );
-        session.setBean( beanName );
-        session.output.printMessage( "bean is set to " + beanName );
+        List<String> beans = new ArrayList<String>();
+        
+        if ( domain == null && session.getDomain() != null)
+        {
+        	domain = session.getDomain();
+        }
+        beans = BeansCommand.getBeans(session, domain);
+        
+        for ( String name : beans )
+        {
+        	dump.put(name, getBeanAttributes(new ObjectName( name ), session, con));	
+        }
+        StringWriter out = new StringWriter();
+        dump.writeJSONString(out);
+        String jsonText = out.toString();
+        session.output.println(jsonText);
+       
+                   
     }
 
-    /**
-     * Set bean option
-     *
-     * @param bean Bean to set
-     */
-    @Argument( displayName = "bean", description = "MBean name with or without domain" )
-    public final void setBean( String bean )
-    {
-        this.bean = bean;
+    private JSONObject getBeanAttributes(ObjectName name, Session session, MBeanServerConnection con) throws InstanceNotFoundException, IntrospectionException, ReflectionException, IOException {
+    	JSONObject result = new JSONObject();
+    	MBeanAttributeInfo[] ais = con.getMBeanInfo( name ).getAttributes();
+    	List<String> att = new ArrayList<String>();
+    	for ( MBeanAttributeInfo ai : ais )
+        {
+    		if ( ai.isReadable() ) 
+    		{
+    			att.add(ai.getName());
+    		}
+        }
+    	AttributeList attrList = con.getAttributes(name, att.toArray(new String[att.size()]));
+    	for (Object attr : attrList)
+    	{
+    		Attribute at = (Attribute)attr;
+    		result.put(at.getName(), jsonify(at.getValue()));
+    		
+    		
+    	}
+    	return result;   
     }
+    
+    /**
+     * Converts an attribute to an object that can be put into a JSON object with the relevant value 
+     *
+     * @param value The object to JSONify
+     * @return An object that can be put to a JSONObject
+     */    
+    private Object jsonify(Object value)
+    {
+    	if ( value==null || value instanceof String || value instanceof Double || value instanceof Number || value instanceof Float || value instanceof Boolean)
+    	{
+    		return value;
+    	}
+    	if ( value.getClass().isArray() )
+		{
+    		LinkedList<Object> list = new LinkedList<Object>();
+			for ( int i = 0; i < Array.getLength( value ); i++ )
+            {
+				list.add(jsonify(Array.get( value, i )));
+            }
+			return list;
+		}
+    	
+    	else if ( Collection.class.isAssignableFrom( value.getClass() ) )
+        {
+    		LinkedList<Object> list = new LinkedList<Object>();   
+    		for ( Object obj : ( (Collection<?>) value ) )
+            {
+    			list.add(jsonify(obj));
+            }
+        }
+    	else if ( Map.class.isAssignableFrom( value.getClass() ) )
+        {
+    		JSONObject obj = new JSONObject();
+    	        
+    		for ( Map.Entry<?, ?> entry : ( (Map<?, ?>) value ).entrySet() )
+            {
+    			Object key = jsonify(entry.getKey());
+    			Object mapValue = jsonify(entry.getValue());
+    			obj.put(key, mapValue);
+            }
+    		
+    		return obj;
+    		
+        }
+    	
+    	else if ( CompositeData.class.isAssignableFrom( value.getClass() ) )
+        {
+    		CompositeData data = (CompositeData) value;
+    		JSONObject obj = new JSONObject();
+            for ( Object key : data.getCompositeType().keySet() )
+            {
+            	Object v = data.get( (String) key );
+            	obj.put(key, jsonify(v));
+            }
+            return obj;
+        }
+    	
+    	
+		return value.toString();
+    	
+    }
+ 
 
     /**
      * Set domain option
      *
      * @param domain Domain option to set
      */
-    @Option( name = "d", longName = "domain", description = "Domain name" )
+    @Argument( displayName = "domain", description = "Domain name" )
     public final void setDomain( String domain )
     {
         this.domain = domain;

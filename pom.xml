@@ -22,6 +22,16 @@
     </issueManagement>
     <dependencies>
         <dependency>
+            <groupId>org.apache.cassandra</groupId>
+            <artifactId>cassandra-all</artifactId>
+            <version>0.7.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1.1</version>
+        </dependency>
+        <dependency>
             <groupId>classworlds</groupId>
             <artifactId>classworlds</artifactId>
             <version>1.1</version>
@@ -104,9 +114,9 @@
         </dependency>
     </dependencies>
     <scm>
-        <connection>scm:git:git@github.com:jiaqi/jmxterm.git</connection>
-        <developerConnection>scm:git:git@github.com:jiaqi/jmxterm.git</developerConnection>
-        <url>git@github.com:jiaqi/jmxterm.git</url>
+        <connection>scm:git:git@github.com:Datadog/jmxterm.git</connection>
+        <developerConnection>scm:git:git@github.com:Datadog/jmxterm.git</developerConnection>
+        <url>git@github.com:Datadog/jmxterm.git</url>
     </scm>
     <build>
         <plugins>
