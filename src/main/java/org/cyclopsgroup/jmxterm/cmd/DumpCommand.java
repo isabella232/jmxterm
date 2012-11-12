@@ -74,20 +74,37 @@ public class DumpCommand
     	MBeanAttributeInfo[] ais = con.getMBeanInfo( name ).getAttributes();
     	List<String> att = new ArrayList<String>();
     	for ( MBeanAttributeInfo ai : ais )
-        {
+    	{
     		if ( ai.isReadable() ) 
     		{
     			att.add(ai.getName());
     		}
-        }
-    	AttributeList attrList = con.getAttributes(name, att.toArray(new String[att.size()]));
-    	for (Object attr : attrList)
-    	{
-    		Attribute at = (Attribute)attr;
-    		result.put(at.getName(), jsonify(at.getValue()));
-    		
-    		
     	}
+    	try
+    	{
+    		AttributeList attrList = con.getAttributes(name, att.toArray(new String[att.size()]));
+    		for (Object attr : attrList)
+    		{
+    			Attribute at = (Attribute)attr;
+    			result.put(at.getName(), jsonify(at.getValue()));
+
+    		}
+    	}
+    	catch (Exception e)
+    	{	
+    		for (String attributeName : att)
+    		{
+    			try{
+    				Object attr = con.getAttribute( name, attributeName );
+    				result.put(attributeName, jsonify(attr));
+    			}
+    			catch (Exception f)
+    			{
+    				continue;
+    			}
+    		}
+    	}
+
     	return result;   
     }
     
