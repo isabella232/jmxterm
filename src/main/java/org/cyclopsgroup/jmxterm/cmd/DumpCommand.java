@@ -20,8 +20,8 @@ import javax.management.ObjectName;
 import javax.management.ReflectionException;
 import javax.management.openmbean.CompositeData;
 
-import org.cyclopsgroup.jcli.annotation.Argument;
 import org.cyclopsgroup.jcli.annotation.Cli;
+import org.cyclopsgroup.jcli.annotation.Option;
 import org.cyclopsgroup.jmxterm.Command;
 import org.cyclopsgroup.jmxterm.Session;
 import org.json.simple.JSONObject;
@@ -36,76 +36,87 @@ import org.json.simple.JSONObject;
 public class DumpCommand
     extends Command
 {
-	private String domain;
-	
+    private String domain;
+    private String valuesOnly="false";
+    
     /**
      * @inheritDoc
      */
     @Override
     public void execute()
         throws IOException, JMException
-    {
+    {   
     	JSONObject dump = new JSONObject();
-    	
-        Session session = getSession();
+    	Session session = getSession();
         MBeanServerConnection con = session.getConnection().getServerConnection();
         List<String> beans = new ArrayList<String>();
         
         if ( domain == null && session.getDomain() != null)
         {
-        	domain = session.getDomain();
+            domain = session.getDomain();
         }
         beans = BeansCommand.getBeans(session, domain);
         
         for ( String name : beans )
         {
-        	dump.put(name, getBeanAttributes(new ObjectName( name ), session, con));	
+        	JSONObject attr = getBeanAttributes(new ObjectName( name ), session, con);
+        	if ( attr.size() != 0)
+        	{
+        		dump.put(name, attr);
+        	}
         }
         StringWriter out = new StringWriter();
         dump.writeJSONString(out);
         String jsonText = out.toString();
         session.output.println(jsonText);
-       
-                   
+        
     }
 
     private JSONObject getBeanAttributes(ObjectName name, Session session, MBeanServerConnection con) throws InstanceNotFoundException, IntrospectionException, ReflectionException, IOException {
-    	JSONObject result = new JSONObject();
-    	MBeanAttributeInfo[] ais = con.getMBeanInfo( name ).getAttributes();
-    	List<String> att = new ArrayList<String>();
-    	for ( MBeanAttributeInfo ai : ais )
-    	{
-    		if ( ai.isReadable() ) 
-    		{
-    			att.add(ai.getName());
-    		}
-    	}
-    	try
-    	{
-    		AttributeList attrList = con.getAttributes(name, att.toArray(new String[att.size()]));
-    		for (Object attr : attrList)
-    		{
-    			Attribute at = (Attribute)attr;
-    			result.put(at.getName(), jsonify(at.getValue()));
+        JSONObject result = new JSONObject();
+        MBeanAttributeInfo[] ais = con.getMBeanInfo( name ).getAttributes();
+        List<String> att = new ArrayList<String>();
+        for ( MBeanAttributeInfo ai : ais )
+        {
+            if ( ai.isReadable() ) 
+            {
+                att.add(ai.getName());
+            }
+        }
+        try
+        {
+            AttributeList attrList = con.getAttributes(name, att.toArray(new String[att.size()]));
+            for (Object attr : attrList)
+            {
+                Attribute at = (Attribute)attr;
+                Object val = jsonify(at.getValue());
+                if ( val != null)
+                {
+                    result.put(at.getName(), val);
+                }
 
-    		}
-    	}
-    	catch (Exception e)
-    	{	
-    		for (String attributeName : att)
-    		{
-    			try{
-    				Object attr = con.getAttribute( name, attributeName );
-    				result.put(attributeName, jsonify(attr));
-    			}
-    			catch (Exception f)
-    			{
-    				continue;
-    			}
-    		}
-    	}
+            }
+        }
+        catch (Exception e)
+        {   
+            for (String attributeName : att)
+            {
+                try{
+                    Object attr = con.getAttribute( name, attributeName );
+                    Object val = jsonify(attr);
+                    if ( val != null )
+                    {
+                        result.put(attributeName, val);
+                    }
+                }
+                catch (Exception f)
+                {
+                    continue;
+                }
+            }
+        }
 
-    	return result;   
+        return result;   
     }
     
     /**
@@ -116,58 +127,100 @@ public class DumpCommand
      */    
     private Object jsonify(Object value)
     {
-    	if ( value==null || value instanceof String || value instanceof Double || value instanceof Number || value instanceof Float || value instanceof Boolean)
-    	{
-    		return value;
-    	}
-    	if ( value.getClass().isArray() )
-		{
-    		LinkedList<Object> list = new LinkedList<Object>();
-			for ( int i = 0; i < Array.getLength( value ); i++ )
+    
+        if (this.valuesOnly.equals("true")) {
+            if ( value instanceof String || value instanceof Boolean || value instanceof javax.management.ObjectName)
             {
-				list.add(jsonify(Array.get( value, i )));
+                return null;
             }
-			return list;
-		}
-    	
-    	else if ( Collection.class.isAssignableFrom( value.getClass() ) )
-        {
-    		LinkedList<Object> list = new LinkedList<Object>();   
-    		for ( Object obj : ( (Collection<?>) value ) )
-            {
-    			list.add(jsonify(obj));
-            }
+            
         }
-    	else if ( Map.class.isAssignableFrom( value.getClass() ) )
+        
+        
+        if ( value==null || value instanceof Double || value instanceof Number || value instanceof Float || value instanceof Boolean || value instanceof String)
         {
-    		JSONObject obj = new JSONObject();
-    	        
-    		for ( Map.Entry<?, ?> entry : ( (Map<?, ?>) value ).entrySet() )
-            {
-    			Object key = jsonify(entry.getKey());
-    			Object mapValue = jsonify(entry.getValue());
-    			obj.put(key, mapValue);
-            }
-    		
-    		return obj;
-    		
+            return value;
         }
-    	
-    	else if ( CompositeData.class.isAssignableFrom( value.getClass() ) )
+        if ( value.getClass().isArray() )
         {
-    		CompositeData data = (CompositeData) value;
-    		JSONObject obj = new JSONObject();
+            LinkedList<Object> list = new LinkedList<Object>();
+            for ( int i = 0; i < Array.getLength( value ); i++ )
+            {
+                Object val = jsonify(Array.get( value, i ));
+                if (val != null)
+                {
+                    list.add(val);
+                }
+            }
+            if (list.size() == 0)
+            {
+            	return null;
+            }
+            return list;
+        }
+        
+        else if ( Collection.class.isAssignableFrom( value.getClass() ) )
+        {
+            LinkedList<Object> list = new LinkedList<Object>();   
+            for ( Object obj : ( (Collection<?>) value ) )
+            {
+                Object val = jsonify(obj);
+                if ( val != null)
+                {
+                    list.add(val);
+                }
+            }
+            
+            if ( list.size() == 0 )
+            {
+            	return null;
+            }
+            return list;
+        }
+        else if ( Map.class.isAssignableFrom( value.getClass() ) )
+        {
+            JSONObject obj = new JSONObject();
+                
+            for ( Map.Entry<?, ?> entry : ( (Map<?, ?>) value ).entrySet() )
+            {
+                Object key = jsonify(entry.getKey());
+                Object mapValue = jsonify(entry.getValue());
+                if ( mapValue != null )
+                {
+                    obj.put(key, mapValue);
+                }
+            }
+            
+            if ( obj.size() == 0 )
+            {
+            	return null;
+            }
+            
+            return obj;
+            
+        }
+        
+        else if ( CompositeData.class.isAssignableFrom( value.getClass() ) )
+        {
+            CompositeData data = (CompositeData) value;
+            JSONObject obj = new JSONObject();
             for ( Object key : data.getCompositeType().keySet() )
             {
-            	Object v = data.get( (String) key );
-            	obj.put(key, jsonify(v));
+                Object v = jsonify(data.get( (String) key ));
+                if ( v != null)
+                {
+                    obj.put(key, jsonify(v));
+                }
+            }
+            if ( obj.size() == 0 )
+            {
+            	return null;
             }
             return obj;
         }
-    	
-    	
-		return value.toString();
-    	
+
+        return value.toString();
+        
     }
  
 
@@ -176,9 +229,21 @@ public class DumpCommand
      *
      * @param domain Domain option to set
      */
-    @Argument( displayName = "domain", description = "Domain name" )
+    @Option( name = "d" , longName = "domain", description = "Domain name" )
     public final void setDomain( String domain )
     {
         this.domain = domain;
+    }
+    
+    /**
+     * Allow to dump only numeric values
+     *
+     * @param values Set to "true" if you want to dump only numeric values, to any other value otherwise
+     */
+    @Option( name = "v", longName = "values", description = "values Only")
+    public final void setValues( String valuesOnly )
+    {
+        
+        this.valuesOnly = valuesOnly;
     }
 }
